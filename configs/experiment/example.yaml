@@ -6,6 +6,7 @@
 defaults:
   - override /data: mnist.yaml
   - override /model: mnist.yaml
+  - override /evaluation: mnist.yaml
   - override /callbacks: default.yaml
   - override /trainer: default.yaml
 

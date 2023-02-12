@@ -1,0 +1,16 @@
+loss:
+  _target_: src.evaluations.metrics.base_metrics.BaseMetricAdapter
+
+  name: "loss"
+
+  metric:
+    _target_: torchmetrics.MeanMetric
+    _partial_: true
+
+  input_pos_args: ["loss"]
+
+  phases: ["train", "val"]
+
+  log_levels: ["batch", "epoch"]
+
+  input_kwargs: null

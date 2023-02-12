@@ -1,0 +1,15 @@
+max_acc:
+
+  _target_: src.evaluations.metrics.base_metrics.BaseMetaMetricAdapter
+
+  name: "max_acc"
+
+  metric:
+    _target_: torchmetrics.MaxMetric
+    _partial_: true
+
+  input_pos_args: ["acc_epoch"]
+
+  phases: ["val"]
+
+  input_kwargs: null

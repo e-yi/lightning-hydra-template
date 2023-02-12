@@ -1,9 +1,10 @@
-from typing import Any, List
+from typing import Any, Dict, List
 
 import torch
 from pytorch_lightning import LightningModule
-from torchmetrics import MaxMetric, MeanMetric
-from torchmetrics.classification.accuracy import Accuracy
+
+from src.evaluations import LEVEL_EPOCH, LEVEL_STAGE, PHASE_TEST, PHASE_TRAIN, PHASE_VALID
+from src.evaluations import MetricGroup
 
 
 class MNISTLitModule(LightningModule):
@@ -22,10 +23,11 @@ class MNISTLitModule(LightningModule):
     """
 
     def __init__(
-        self,
-        net: torch.nn.Module,
-        optimizer: torch.optim.Optimizer,
-        scheduler: torch.optim.lr_scheduler,
+            self,
+            net: torch.nn.Module,
+            optimizer: torch.optim.Optimizer,
+            scheduler: torch.optim.lr_scheduler,
+            metric_group: MetricGroup,
     ):
         super().__init__()
 
@@ -38,18 +40,7 @@ class MNISTLitModule(LightningModule):
         # loss function
         self.criterion = torch.nn.CrossEntropyLoss()
 
-        # metric objects for calculating and averaging accuracy across batches
-        self.train_acc = Accuracy(task="multiclass", num_classes=10)
-        self.val_acc = Accuracy(task="multiclass", num_classes=10)
-        self.test_acc = Accuracy(task="multiclass", num_classes=10)
-
-        # for averaging loss across batches
-        self.train_loss = MeanMetric()
-        self.val_loss = MeanMetric()
-        self.test_loss = MeanMetric()
-
-        # for tracking best so far validation accuracy
-        self.val_acc_best = MaxMetric()
+        self.metric_group = metric_group
 
     def forward(self, x: torch.Tensor):
         return self.net(x)
@@ -57,7 +48,7 @@ class MNISTLitModule(LightningModule):
     def on_train_start(self):
         # by default lightning executes validation step sanity checks before training starts,
         # so we need to make sure val_acc_best doesn't store accuracy from these checks
-        self.val_acc_best.reset()
+        self.metric_group.reset(level=LEVEL_STAGE)
 
     def model_step(self, batch: Any):
         x, y = batch
@@ -69,16 +60,27 @@ class MNISTLitModule(LightningModule):
     def training_step(self, batch: Any, batch_idx: int):
         loss, preds, targets = self.model_step(batch)
 
-        # update and log metrics
-        self.train_loss(loss)
-        self.train_acc(preds, targets)
-        self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("train/acc", self.train_acc, on_step=False, on_epoch=True, prog_bar=True)
-
         # we can return here dict with any tensors
         # and then read it in some callback or in `training_epoch_end()` below
         # remember to always return loss from `training_step()` or backpropagation will fail!
         return {"loss": loss, "preds": preds, "targets": targets}
+
+    def train_step_end(self, outputs: Dict):
+        """
+        :param outputs: Anything returns by training_step
+        :return:
+        """
+
+        """
+        If using metrics in data parallel mode (dp),
+        the metric update/logging should be done in the <mode>_step_end method
+        see https://torchmetrics.readthedocs.io/en/stable/pages/lightning.html#common-pitfalls
+        """
+
+        # update and log metrics
+        step_metrics = self.metric_group.batch_step(outputs, phase=PHASE_TRAIN)
+
+        self.log_dict(step_metrics, prog_bar=True)
 
     def training_epoch_end(self, outputs: List[Any]):
         # `outputs` is a list of dicts returned from `training_step()`
@@ -92,37 +94,72 @@ class MNISTLitModule(LightningModule):
 
         pass
 
+    def on_train_epoch_end(self):
+        epoch_metrics = self.metric_group.epoch_step(phase=PHASE_TRAIN)
+        self.log_dict(epoch_metrics)
+
+        self.metric_group.reset(level=LEVEL_EPOCH, phases=PHASE_TRAIN)
+
     def validation_step(self, batch: Any, batch_idx: int):
         loss, preds, targets = self.model_step(batch)
 
-        # update and log metrics
-        self.val_loss(loss)
-        self.val_acc(preds, targets)
-        self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("val/acc", self.val_acc, on_step=False, on_epoch=True, prog_bar=True)
-
         return {"loss": loss, "preds": preds, "targets": targets}
 
+    def validation_step_end(self, outputs: Dict):
+        """
+        :param outputs: Anything returns by validation_step
+        :return:
+        """
+
+        """
+        If using metrics in data parallel mode (dp),
+        the metric update/logging should be done in the <mode>_step_end method
+        see https://torchmetrics.readthedocs.io/en/stable/pages/lightning.html#common-pitfalls
+        """
+
+        # update and log metrics
+        step_metrics = self.metric_group.batch_step(outputs, phase=PHASE_VALID)
+
+        self.log_dict(step_metrics, prog_bar=True)
+
     def validation_epoch_end(self, outputs: List[Any]):
-        acc = self.val_acc.compute()  # get current val acc
-        self.val_acc_best(acc)  # update best so far val acc
-        # log `val_acc_best` as a value through `.compute()` method, instead of as a metric object
-        # otherwise metric would be reset by lightning after each epoch
-        self.log("val/acc_best", self.val_acc_best.compute(), prog_bar=True)
+        pass
+
+    def on_validation_epoch_end(self):
+        epoch_metrics = self.metric_group.epoch_step(phase=PHASE_VALID)
+        self.log_dict(epoch_metrics)
+
+        self.metric_group.reset(level=LEVEL_EPOCH, phases=PHASE_VALID)
 
     def test_step(self, batch: Any, batch_idx: int):
         loss, preds, targets = self.model_step(batch)
 
-        # update and log metrics
-        self.test_loss(loss)
-        self.test_acc(preds, targets)
-        self.log("test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("test/acc", self.test_acc, on_step=False, on_epoch=True, prog_bar=True)
-
         return {"loss": loss, "preds": preds, "targets": targets}
+
+    def test_step_end(self, outputs: Dict):
+        """
+        :param outputs: Anything returns by test_step
+        :return:
+        """
+
+        """
+        If using metrics in data parallel mode (dp),
+        the metric update/logging should be done in the <mode>_step_end method
+        see https://torchmetrics.readthedocs.io/en/stable/pages/lightning.html#common-pitfalls
+        """
+
+        # update and log metrics
+        step_metrics = self.metric_group.batch_step(outputs, phase=PHASE_TEST)
+        self.log_dict(step_metrics, prog_bar=True)
 
     def test_epoch_end(self, outputs: List[Any]):
         pass
+
+    def on_test_epoch_end(self):
+        epoch_metrics = self.metric_group.epoch_step(phase=PHASE_TEST)
+        self.log_dict(epoch_metrics)
+
+        self.metric_group.reset(level=LEVEL_EPOCH, phases=PHASE_TEST)
 
     def configure_optimizers(self):
         """Choose what optimizers and learning-rate schedulers to use in your optimization.
@@ -138,7 +175,7 @@ class MNISTLitModule(LightningModule):
                 "optimizer": optimizer,
                 "lr_scheduler": {
                     "scheduler": scheduler,
-                    "monitor": "val/loss",
+                    "monitor": "val/loss_epoch",
                     "interval": "epoch",
                     "frequency": 1,
                 },
@@ -147,4 +184,4 @@ class MNISTLitModule(LightningModule):
 
 
 if __name__ == "__main__":
-    _ = MNISTLitModule(None, None, None)
+    _ = MNISTLitModule(None, None, None, None)

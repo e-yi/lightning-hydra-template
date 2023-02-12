@@ -10,6 +10,7 @@ from pytorch_lightning import Callback
 from pytorch_lightning.loggers import LightningLoggerBase
 from pytorch_lightning.utilities import rank_zero_only
 
+from src.evaluations.metrics.base_metrics import MyMetric
 from src.utils import pylogger, rich_utils
 
 log = pylogger.get_pylogger(__name__)
@@ -89,6 +90,25 @@ def extras(cfg: DictConfig) -> None:
     if cfg.extras.get("print_config"):
         log.info("Printing config tree with Rich! <cfg.extras.print_config=True>")
         rich_utils.print_config_tree(cfg, resolve=True, save_to_file=True)
+
+
+def instantiate_metrics(metric_cfg: DictConfig) -> List[MyMetric]:
+    """Instantiates metrics from config."""
+    metrics: List[MyMetric] = []
+
+    if not metric_cfg:
+        log.warning("Metric config is empty.")
+        return metrics
+
+    if not isinstance(metric_cfg, DictConfig):
+        raise TypeError("Metric config must be a DictConfig!")
+
+    for _, m_conf in metric_cfg.items():
+        if isinstance(m_conf, DictConfig) and "_target_" in m_conf:
+            log.info(f'Instantiating metric "{m_conf.name}"')
+            metrics.append(hydra.utils.instantiate(m_conf))
+
+    return metrics
 
 
 def instantiate_callbacks(callbacks_cfg: DictConfig) -> List[Callback]:

@@ -1,0 +1,10 @@
+defaults:
+  - metrics/loss.yaml@_here_
+  - metrics/accuracy.yaml@_here_
+  - metrics/max_acc.yaml@_here_
+  - _self_
+
+accuracy:
+  metric:
+    task: "multiclass"
+    num_classes: 10

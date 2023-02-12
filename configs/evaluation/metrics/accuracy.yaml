@@ -1,0 +1,17 @@
+accuracy:
+
+  _target_: src.evaluations.metrics.base_metrics.BaseMetricAdapter
+
+  name: "acc"
+
+  metric:
+    _target_: torchmetrics.Accuracy
+    _partial_: true
+
+  input_pos_args: ["preds", "targets"]
+
+  phases: ["train", "val", "test"]
+
+  log_levels: ["epoch"]
+
+  input_kwargs: null
