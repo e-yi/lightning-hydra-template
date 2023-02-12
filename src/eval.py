@@ -51,7 +51,7 @@ def evaluate(cfg: DictConfig) -> Tuple[dict, dict]:
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
 
-    log.info(f"Instantiating metrics <{cfg.evaluation._target_}>")
+    log.info(f"Instantiating metrics...")
     metrics: List[MyMetric] = utils.instantiate_metrics(cfg.evaluation)
 
     log.info(f"Instantiating model <{cfg.model._target_}>")
